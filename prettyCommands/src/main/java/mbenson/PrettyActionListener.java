@@ -82,7 +82,7 @@ public class PrettyActionListener implements ActionListener {
 
     }
 
-    private static final FacesElUtils elUtils = new FacesElUtils();
+    private static final FacesElUtils EL_UTILS = new FacesElUtils();
 
     private final ActionListener delegate;
 
@@ -149,8 +149,7 @@ public class PrettyActionListener implements ActionListener {
         }
         final HashMap<Object, Object> handledNames = new HashMap<Object, Object>();
 
-        // do a full visit to ensure all potentially necessary context is
-        // available:
+        // do a full visit to ensure all potentially necessary context is available:
         VisitContext visitContext =
             VisitContext.createVisitContext(
                 context,
@@ -177,8 +176,7 @@ public class PrettyActionListener implements ActionListener {
                             return VisitResult.ACCEPT;
                         }
                     });
-                    // nested visit for remaining unnamed, thus presumed to be
-                    // path params
+                    // nested visit for remaining unnamed, thus presumed to be path params
                     final Iterator<PathParameter> orderedPathParams = pathParams.iterator();
                     target.visitTree(VisitContext.createVisitContext(context), new VisitCallback() {
 
@@ -188,8 +186,7 @@ public class PrettyActionListener implements ActionListener {
                                 if (param.getAttributes().get("name") == null) {
                                     if (orderedPathParams.hasNext()) {
                                         PathParameter pathParam = orderedPathParams.next();
-                                        // skip path params already handled by
-                                        // name:
+                                        // skip path params already handled by name:
                                         while (handledNames.containsKey(pathParam.getName())) {
                                             if (orderedPathParams.hasNext()) {
                                                 pathParam = orderedPathParams.next();
@@ -215,8 +212,43 @@ public class PrettyActionListener implements ActionListener {
                 return target instanceof UICommand ? VisitResult.REJECT : VisitResult.ACCEPT;
             }
         });
+        addNamedRequestParameters(context, handledNames);
+    }
+
+    private static void setValue(final FacesContext context, RequestParameter param, Object value) {
+        value = overrideLiteralPathParameter(param, value);
+
+        String el = param.getExpression().getELExpression();
+        if (el == null || "".equals(el.trim())) {
+            return;
+        }
+        Object convertedValue = null;
+        Class<?> expectedType = EL_UTILS.getExpectedType(context, el);
+        if (expectedType != null && !expectedType.isInstance(value) && value instanceof String) {
+            // get the type of the referenced property and try to obtain a converter for it
+            Converter converter = context.getApplication().createConverter(expectedType);
+
+            // Use the convert to create the correct type
+            if (converter != null) {
+                convertedValue = converter.getAsObject(context, new NullComponent(), (String) value);
+            }
+        }
+        EL_UTILS.setValue(context, el, convertedValue == null ? value : convertedValue);
+    }
+
+    private static Object overrideLiteralPathParameter(RequestParameter param, Object value) {
+        if (param instanceof PathParameter) {
+            String regex = ((PathParameter) param).getRegex();
+            if (regex != null && regex.equals(Pattern.quote(regex))) {
+                return regex;
+            }
+        }
+        return value;
+    }
+
+    private static void addNamedRequestParameters(final FacesContext context, Map<Object, Object> named) {
         HashMap<String, String[]> additionalRequestParameters = new HashMap<String, String[]>();
-        for (Map.Entry<Object, Object> e : handledNames.entrySet()) {
+        for (Map.Entry<Object, Object> e : named.entrySet()) {
             if (e.getKey() instanceof String) {
                 if (e.getValue() instanceof String) {
                     additionalRequestParameters.put((String) e.getKey(), new String[] { (String) e.getValue() });
@@ -230,38 +262,5 @@ public class PrettyActionListener implements ActionListener {
                 new PrettyFacesWrappedRequest((HttpServletRequest) context.getExternalContext().getRequest(),
                     additionalRequestParameters));
         }
-    }
-
-    private static void setValue(final FacesContext context, RequestParameter param, Object value) {
-        value = overrideLiteralPathParameter(param, value);
-
-        String el = param.getExpression().getELExpression();
-        if (el == null || "".equals(el.trim())) {
-            return;
-        }
-        Object convertedValue = null;
-        Class<?> expectedType = elUtils.getExpectedType(context, el);
-        if (expectedType != null && !expectedType.isInstance(value) && value instanceof String) {
-            // get the type of the referenced property and try to obtain a
-            // converter
-            // for it
-            Converter converter = context.getApplication().createConverter(expectedType);
-
-            // Use the convert to create the correct type
-            if (converter != null) {
-                convertedValue = converter.getAsObject(context, new NullComponent(), (String) value);
-            }
-        }
-        elUtils.setValue(context, el, convertedValue == null ? value : convertedValue);
-    }
-
-    private static Object overrideLiteralPathParameter(RequestParameter param, Object value) {
-        if (param instanceof PathParameter) {
-            String regex = ((PathParameter) param).getRegex();
-            if (regex != null && regex.equals(Pattern.quote(regex))) {
-                return regex;
-            }
-        }
-        return value;
     }
 }
